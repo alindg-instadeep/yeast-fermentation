@@ -222,18 +222,20 @@ class FermentationDataGenerator:
         
         return dataset
     
-    def prepare_rnn_data(self, data: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def prepare_rnn_data(self, data: pd.DataFrame, window_size: int, stride: int = 1) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Prepare data for RNN training - each episode becomes one sequence
+        Prepare data for RNN training using sliding windows - creates multiple sequences from each episode
         
         Args:
             data: Fermentation dataset
+            window_size: Length of each sequence window
+            stride: Step size for sliding window (default: 1 for maximum overlap)
             
         Returns:
             Tuple of (X, y, episode_ids) arrays
-            - X: Input sequences [num_episodes, episode_length, num_features]
-            - y: Target sequences [num_episodes, episode_length] (contamination labels)
-            - episode_ids: Array of episode IDs for reference
+            - X: Input sequences [num_sequences, window_size, num_features]
+            - y: Target sequences [num_sequences, window_size] (contamination labels)
+            - episode_ids: Array of episode IDs for each sequence
         """
         # Feature columns for RNN - only observable measurements
         # (contamination status is the target, not an input!)
@@ -241,8 +243,8 @@ class FermentationDataGenerator:
             'biomass', 'glucose', 'ethanol'
         ]
         
-        X_episodes = []
-        y_episodes = []
+        X_sequences = []
+        y_sequences = []
         episode_ids = []
         
         # Process each episode separately
@@ -253,11 +255,26 @@ class FermentationDataGenerator:
             X_episode = episode_data[feature_columns].values
             y_episode = episode_data['contaminated'].values.astype(int)
             
-            X_episodes.append(X_episode)
-            y_episodes.append(y_episode)
-            episode_ids.append(episode_id)
+            episode_length = len(X_episode)
+            
+            # Skip episodes that are too short
+            if episode_length < window_size:
+                print(f"Warning: Episode {episode_id} has length {episode_length} < window_size {window_size}, skipping")
+                continue
+            
+            # Create sliding windows from this episode
+            for start_idx in range(0, episode_length - window_size + 1, stride):
+                end_idx = start_idx + window_size
+                
+                # Extract window
+                X_window = X_episode[start_idx:end_idx]
+                y_window = y_episode[start_idx:end_idx]
+                
+                X_sequences.append(X_window)
+                y_sequences.append(y_window)
+                episode_ids.append(episode_id)
         
-        return np.array(X_episodes), np.array(y_episodes), np.array(episode_ids)
+        return np.array(X_sequences), np.array(y_sequences), np.array(episode_ids)
     
     def get_episode_summary(self, data: pd.DataFrame) -> pd.DataFrame:
         """
